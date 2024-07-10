@@ -3,6 +3,7 @@ package command
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/Shresth72/tor/pkg/decode"
 )
@@ -39,19 +40,19 @@ type TrackerResponse struct {
 func ExecuteCommand(command, argument string) ([]byte, error) {
 	switch command {
 	case "decode":
-		x, _, err := decode.DecodeBencode(argument, 0)
+		decoded, _, err := decode.DecodeBencode(argument, 0)
 		if err != nil {
 			return nil, fmt.Errorf("decode bencode: %w", err)
 		}
 
-		jsonOutput, err := json.Marshal(x)
+		jsonOutput, err := json.Marshal(decoded)
 		if err != nil {
 			return nil, fmt.Errorf("encode to json: %w", err)
 		}
 		return jsonOutput, nil
 
 	case "info":
-    meta, err := getMeta(argument)
+		meta, err := getMeta(argument)
 		if err != nil {
 			return nil, err
 		}
@@ -64,20 +65,54 @@ func ExecuteCommand(command, argument string) ([]byte, error) {
 		return json.Marshal(meta)
 
 	case "peers":
-    meta, err := getMeta(argument)
-    if err != nil {
-      return nil, err
+		meta, err := getMeta(argument)
+		if err != nil {
+			return nil, err
+		}
+
+		url, req, err := getPeers(meta)
+		if err != nil {
+			return nil, err
+		}
+
+		res, err := sendTrackerRequest(url, req)
+		if err != nil {
+			return nil, err
+		}
+		defer res.Body.Close()
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read response body: %w", err)
+		}
+
+		d, _, err := decode.DecodeBencode(string(body), 0)
+		if err != nil {
+			return nil, fmt.Errorf("decode bencode: %w", err)
+		}
+
+		trackerResponse := d.(map[string]interface{})
+    var interval int
+    if trackInterval, ok := trackerResponse["interval"].(int); ok {
+      interval = trackInterval
+    } else {
+      return nil, fmt.Errorf("expected interval in trackerResponse")
     }
-    
-    url, req, err := getPeers(meta)
-    if err != nil {
-      return nil, err
+
+    var peers string
+    if trackerPeers, ok := trackerResponse["peers"].(string); ok {
+      peers = trackerPeers
+    } else {
+      return nil, fmt.Errorf("expected peers in trackerResponse")
     }
-    
-    sendTrackerRequest()
+
+    tres := TrackerResponse{
+      Interval: interval,
+      Peers: peers,
+    }
+		return json.Marshal(tres)
 
 	default:
 		return nil, fmt.Errorf("unknown command: %s", command)
 	}
 }
-

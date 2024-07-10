@@ -4,6 +4,8 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/Shresth72/tor/pkg/decode"
@@ -39,6 +41,7 @@ func getMeta(arg string) (Meta, error) {
 	return mapToMeta(d.(map[string]interface{}))
 }
 
+// Info Utils
 func mapToMeta(data map[string]interface{}) (Meta, error) {
 	var meta Meta
 
@@ -77,21 +80,41 @@ func mapToMeta(data map[string]interface{}) (Meta, error) {
 	return meta, nil
 }
 
+// Peers Utils
 func getPeers(meta Meta) (string, TrackerGetRequest, error) {
-  if meta.Announce == "" || meta.Info.Pieces == "" || meta.Info.Length == 0 {
-    return "", TrackerGetRequest{}, fmt.Errorf("missing required fields")
-  }
+	if meta.Announce == "" || meta.Info.Pieces == "" || meta.Info.Length == 0 {
+		return "", TrackerGetRequest{}, fmt.Errorf("missing required fields")
+	}
 
-  req := TrackerGetRequest{
-    InfoHash: meta.Info.Pieces,
-    PeerId: "id420",
-    Port: 6969,
-    Uploaded: 0,
-    Downloaded: 0,
-    Left: meta.Info.Length,
-    Compact: true,
-  }
+	req := TrackerGetRequest{
+		InfoHash:   meta.Info.Pieces,
+		PeerId:     "id420",
+		Port:       6969,
+		Uploaded:   0,
+		Downloaded: 0,
+		Left:       meta.Info.Length,
+		Compact:    true,
+	}
 
-  return meta.Announce, req, nil
+	return meta.Announce, req, nil
 }
 
+func sendTrackerRequest(uri string, req TrackerGetRequest) (*http.Response, error) {
+	params := url.Values{}
+	params.Add("info_hash", req.InfoHash)
+	params.Add("peer_id", req.PeerId)
+	params.Add("port", fmt.Sprintf("%d", req.Port))
+	params.Add("uploaded", fmt.Sprintf("%d", req.Uploaded))
+	params.Add("downloaded", fmt.Sprintf("%d", req.Downloaded))
+	params.Add("left", fmt.Sprintf("%d", req.Left))
+	params.Add("compact", fmt.Sprintf("%t", req.Compact))
+
+	trackerUrl := fmt.Sprintf("%s?%s", uri, params.Encode())
+
+	res, err := http.Get(trackerUrl)
+	if err != nil {
+		return nil, fmt.Errorf("send GET request: %w", err)
+	}
+
+	return res, nil
+}
