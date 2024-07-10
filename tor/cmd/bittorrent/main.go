@@ -1,29 +1,21 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
-	"github.com/codecrafters-io/tor/pkg/decode"
+	"github.com/Shresth72/tor/pkg/command"
 )
 
 func main() {
-	command := os.Args[1]
+	cmd := os.Args[1]
+  arg := os.Args[2]
 
-	if command == "decode" {
-		bencodedValue := os.Args[2]
+  jsonOutput, err := command.ExecuteCommand(cmd, arg)
+  if err != nil {
+    fmt.Printf("error: %v\n", err)
+    os.Exit(1)
+  }
 
-		decoded, _, err := decode.DecodeBencode(bencodedValue, 0)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		jsonOutput, _ := json.Marshal(decoded)
-		fmt.Println(string(jsonOutput))
-	} else {
-		fmt.Println("Unknown command: " + command)
-		os.Exit(1)
-	}
+  fmt.Printf("%s", jsonOutput)
 }

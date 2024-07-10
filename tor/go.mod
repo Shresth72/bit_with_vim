@@ -1,4 +1,4 @@
-module github.com/codecrafters-io/tor
+module github.com/Shresth72/tor
 
 go 1.22
 
