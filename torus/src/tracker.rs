@@ -1,7 +1,7 @@
 use anyhow::Result;
-use bittorrent_starter_rust::mini_serde_bencode::from_bytes;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use torus::my_serde_bencode::from_bytes;
 
 use crate::{peer::Peer, torrent::Torrent};
 
@@ -75,7 +75,34 @@ pub async fn discover_peers(torrent: &Torrent) -> Result<Vec<Peer>> {
     let client = Client::new();
     let request = TrackerRequest::new(torrent);
     let url = request.to_url(tracker);
+
     let response = client.get(&url).send().await?;
     let response: TrackerResponse = from_bytes(&response.bytes().await?)?;
+
     Ok(response.get_peers())
+}
+
+fn percent_encode(input: &[u8]) -> String {
+    let mut output = String::with_capacity(input.len() * 3);
+    for &byte in input {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                output.push(byte as char);
+            }
+            byte => {
+                output.push('%');
+                output.push(hex_chars(byte >> 4));
+                output.push(hex_chars(byte & 0x0F));
+            }
+        }
+    }
+    output
+}
+
+fn hex_chars(byte: u8) -> char {
+    match byte {
+        0..=9 => (byte + b'0') as char,
+        10..=15 => (byte - 10 + b'A') as char,
+        _ => unreachable!(),
+    }
 }
