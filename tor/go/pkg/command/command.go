@@ -3,7 +3,8 @@ package command
 import (
 	"encoding/json"
 	"fmt"
-	"io"
+	"net"
+	"time"
 
 	"github.com/Shresth72/tor/pkg/decode"
 )
@@ -65,52 +66,71 @@ func ExecuteCommand(command, argument string) ([]byte, error) {
 		return json.Marshal(meta)
 
 	case "peers":
-		meta, err := getMeta(argument)
+		trackerRes, err := getTrackerResponse(argument)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(trackerRes)
+
+	case "handshake":
+		trackerRes, err := getTrackerResponse(argument)
 		if err != nil {
 			return nil, err
 		}
 
-		url, req, err := getPeers(meta)
+		peerList := parsePeers(trackerRes.Peers)
+		if len(peerList) == 0 {
+			return nil, fmt.Errorf("no peers found")
+		}
+
+		conn, err := net.DialTimeout("tcp", peerList[0].Address, 10*time.Second)
+		if err != nil {
+			return nil, fmt.Errorf("dial: %w", err)
+		}
+		defer conn.Close()
+
+		err = sendHandshake(conn, trackerRes.Peers)
+		if err != nil {
+			return nil, fmt.Errorf("send handshake: %w", err)
+		}
+
+		response, err := readHandshake(conn)
+		if err != nil {
+			return nil, fmt.Errorf("read handshake: %w", err)
+		}
+
+		return json.Marshal(response)
+
+	case "download":
+		trackerRes, err := getTrackerResponse(argument)
 		if err != nil {
 			return nil, err
 		}
 
-		res, err := sendTrackerRequest(url, req)
-		if err != nil {
-			return nil, err
-		}
-		defer res.Body.Close()
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return nil, fmt.Errorf("read response body: %w", err)
+		peerList := parsePeers(trackerRes.Peers)
+		if len(peerList) == 0 {
+			return nil, fmt.Errorf("no peers found")
 		}
 
-		d, _, err := decode.DecodeBencode(string(body), 0)
-		if err != nil {
-			return nil, fmt.Errorf("decode bencode: %w", err)
+		for _, peer := range peerList {
+			conn, err := net.DialTimeout("tcp", peer.Address, 10*time.Second)
+			if err != nil {
+				continue
+			}
+			defer conn.Close()
+
+			err = sendHandshake(conn, trackerRes.Peers)
+			if err != nil {
+				continue
+			}
+
+			_, err = readHandshake(conn)
+			if err != nil {
+				return nil, err
+			}
+
 		}
-
-		trackerResponse := d.(map[string]interface{})
-    var interval int
-    if trackInterval, ok := trackerResponse["interval"].(int); ok {
-      interval = trackInterval
-    } else {
-      return nil, fmt.Errorf("expected interval in trackerResponse")
-    }
-
-    var peers string
-    if trackerPeers, ok := trackerResponse["peers"].(string); ok {
-      peers = trackerPeers
-    } else {
-      return nil, fmt.Errorf("expected peers in trackerResponse")
-    }
-
-    tres := TrackerResponse{
-      Interval: interval,
-      Peers: peers,
-    }
-		return json.Marshal(tres)
+		return nil, nil
 
 	default:
 		return nil, fmt.Errorf("unknown command: %s", command)

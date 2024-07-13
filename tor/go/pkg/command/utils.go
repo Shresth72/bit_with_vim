@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -41,7 +42,6 @@ func getMeta(arg string) (Meta, error) {
 	return mapToMeta(d.(map[string]interface{}))
 }
 
-// Info Utils
 func mapToMeta(data map[string]interface{}) (Meta, error) {
 	var meta Meta
 
@@ -80,25 +80,6 @@ func mapToMeta(data map[string]interface{}) (Meta, error) {
 	return meta, nil
 }
 
-// Peers Utils
-func getPeers(meta Meta) (string, TrackerGetRequest, error) {
-	if meta.Announce == "" || meta.Info.Pieces == "" || meta.Info.Length == 0 {
-		return "", TrackerGetRequest{}, fmt.Errorf("missing required fields")
-	}
-
-	req := TrackerGetRequest{
-		InfoHash:   meta.Info.Pieces,
-		PeerId:     "id420",
-		Port:       6969,
-		Uploaded:   0,
-		Downloaded: 0,
-		Left:       meta.Info.Length,
-		Compact:    true,
-	}
-
-	return meta.Announce, req, nil
-}
-
 func sendTrackerRequest(uri string, req TrackerGetRequest) (*http.Response, error) {
 	params := url.Values{}
 	params.Add("info_hash", req.InfoHash)
@@ -117,4 +98,52 @@ func sendTrackerRequest(uri string, req TrackerGetRequest) (*http.Response, erro
 	}
 
 	return res, nil
+}
+
+func getTrackerResponse(argument string) (TrackerResponse, error) {
+	meta, err := getMeta(argument)
+	if err != nil {
+		return TrackerResponse{}, err
+	}
+
+	url, req, err := getPeers(meta)
+	if err != nil {
+		return TrackerResponse{}, err
+	}
+
+	res, err := sendTrackerRequest(url, req)
+	if err != nil {
+		return TrackerResponse{}, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return TrackerResponse{}, fmt.Errorf("read response body: %w", err)
+	}
+
+	d, _, err := decode.DecodeBencode(string(body), 0)
+	if err != nil {
+		return TrackerResponse{}, fmt.Errorf("decode bencode: %w", err)
+	}
+
+	trackerResponse := d.(map[string]interface{})
+	var interval int
+	if trackInterval, ok := trackerResponse["interval"].(int); ok {
+		interval = trackInterval
+	} else {
+		return TrackerResponse{}, fmt.Errorf("expected interval in trackerResponse")
+	}
+
+	var peers string
+	if trackerPeers, ok := trackerResponse["peers"].(string); ok {
+		peers = trackerPeers
+	} else {
+		return TrackerResponse{}, fmt.Errorf("expected peers in trackerResponse")
+	}
+
+	return TrackerResponse{
+		Interval: interval,
+		Peers:    peers,
+	}, nil
 }
