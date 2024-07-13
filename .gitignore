@@ -1,4 +1,9 @@
-sample.torrent
 
+# lua files
+
+# server files
+
+# tor files
+sample.torrent
 target
 Cargo.lock
